@@ -4,6 +4,7 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Leaderboard Esmeraldopolis</title>
+    <link rel="icon" type="image/png" href="{{ asset('img/75202705-b62e-4082-8715-f43f102c6bc5.png') }}">
     <script src="https://cdn.tailwindcss.com"></script>
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;600;700&display=swap" rel="stylesheet">
     <style>
@@ -224,8 +225,12 @@
                     </div>
                     
                     <!-- History Container -->
-                    <div id="history-{{ $summoner->id }}" class="hidden mt-4 border-t border-gray-700 pt-4">
-                        <div class="text-center text-gray-500 text-xs animate-pulse">Carregando partidas...</div>
+                    <div id="history-wrapper-{{ $summoner->id }}" class="grid grid-rows-[0fr] transition-[grid-template-rows] duration-500 ease-out">
+                        <div class="overflow-hidden">
+                            <div id="history-content-{{ $summoner->id }}" class="mt-4 border-t border-gray-700 pt-4 opacity-0 transition-opacity duration-500">
+                                <div class="text-center text-gray-500 text-xs animate-pulse">Carregando partidas...</div>
+                            </div>
+                        </div>
                     </div>
 
                 </div>
@@ -240,24 +245,59 @@
 
     <script>
         function toggleHistory(id) {
-            const container = document.getElementById(`history-${id}`);
+            const wrapper = document.getElementById(`history-wrapper-${id}`);
+            const content = document.getElementById(`history-content-${id}`);
             
-            if (container.classList.contains('hidden')) {
-                container.classList.remove('hidden');
+            const isClosed = wrapper.classList.contains('grid-rows-[0fr]');
+            
+            if (isClosed) {
+                // Open
+                wrapper.classList.remove('grid-rows-[0fr]');
+                wrapper.classList.add('grid-rows-[1fr]');
                 
+                // Fade in content
+                setTimeout(() => {
+                    content.classList.remove('opacity-0');
+                }, 50);
+
                 // Only fetch if empty (not already loaded)
-                if (container.innerHTML.includes('Carregando')) {
+                if (content.innerHTML.includes('Carregando')) {
                     fetch(`/summoner/${id}/history`)
                         .then(response => response.text())
                         .then(html => {
-                            container.innerHTML = html;
+                            content.innerHTML = html;
                         })
                         .catch(err => {
-                            container.innerHTML = '<div class="text-red-400 text-xs text-center">Erro ao carregar partidas.</div>';
+                            content.innerHTML = '<div class="text-red-400 text-xs text-center">Erro ao carregar partidas.</div>';
                         });
                 }
             } else {
-                container.classList.add('hidden');
+                // Close
+                content.classList.add('opacity-0');
+                wrapper.classList.remove('grid-rows-[1fr]');
+                wrapper.classList.add('grid-rows-[0fr]');
+            }
+        }
+
+        function toggleMatchDetails(matchId) {
+            const wrapper = document.getElementById(`details-wrapper-${matchId}`);
+            const content = document.getElementById(`details-content-${matchId}`);
+            const arrow = document.getElementById(`arrow-${matchId}`);
+            
+            const isClosed = wrapper.classList.contains('grid-rows-[0fr]');
+            
+            if (isClosed) {
+                // Open
+                wrapper.classList.remove('grid-rows-[0fr]');
+                wrapper.classList.add('grid-rows-[1fr]');
+                content.classList.remove('opacity-0');
+                if(arrow) arrow.style.transform = 'rotate(180deg)';
+            } else {
+                // Close
+                content.classList.add('opacity-0');
+                wrapper.classList.remove('grid-rows-[1fr]');
+                wrapper.classList.add('grid-rows-[0fr]');
+                if(arrow) arrow.style.transform = 'rotate(0deg)';
             }
         }
     </script>
