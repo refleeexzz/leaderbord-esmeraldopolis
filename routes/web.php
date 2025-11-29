@@ -23,6 +23,7 @@ Route::middleware(['admin.auth'])->group(function () {
     })->name('admin.index');
     
     Route::post('/summoner', [LeaderboardController::class, 'store'])->name('leaderboard.store');
+    Route::delete('/summoner/{id}', [LeaderboardController::class, 'destroy'])->name('leaderboard.destroy');
 });
 
 

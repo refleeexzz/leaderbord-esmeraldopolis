@@ -152,6 +152,13 @@ class LeaderboardController extends Controller
         return back()->withErrors(['msg' => 'could not update summoner']);
     }
 
+    public function destroy($id)
+    {
+        $summoner = \App\Models\Summoner::findOrFail($id);
+        $summoner->delete();
+        return back()->with('success', 'summoner removed successfully');
+    }
+
     public function history($id)
     {
         $summoner = \App\Models\Summoner::findOrFail($id);
