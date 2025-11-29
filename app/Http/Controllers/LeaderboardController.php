@@ -15,8 +15,35 @@ class LeaderboardController extends Controller
 
     public function index()
     {
-        // fetch all summoners ordered by league points
-        $summoners = \App\Models\Summoner::orderBy('league_points', 'desc')->get();
+        // fetch all summoners
+        $summoners = \App\Models\Summoner::all();
+
+        // Sort by Tier > Rank > LP
+        $summoners = $summoners->sort(function ($a, $b) {
+            $tiers = [
+                'CHALLENGER' => 10, 'GRANDMASTER' => 9, 'MASTER' => 8,
+                'DIAMOND' => 7, 'EMERALD' => 6, 'PLATINUM' => 5,
+                'GOLD' => 4, 'SILVER' => 3, 'BRONZE' => 2, 'IRON' => 1, 'UNRANKED' => 0
+            ];
+            
+            $ranks = ['I' => 4, 'II' => 3, 'III' => 2, 'IV' => 1, '' => 0];
+
+            $tierA = $tiers[strtoupper($a->tier)] ?? 0;
+            $tierB = $tiers[strtoupper($b->tier)] ?? 0;
+
+            if ($tierA !== $tierB) {
+                return $tierB <=> $tierA; // Descending
+            }
+
+            $rankA = $ranks[$a->rank] ?? 0;
+            $rankB = $ranks[$b->rank] ?? 0;
+
+            if ($rankA !== $rankB) {
+                return $rankB <=> $rankA; // Descending
+            }
+
+            return $b->league_points <=> $a->league_points; // Descending
+        });
 
         return view('leaderboard', compact('summoners'));
     }
@@ -43,18 +70,26 @@ class LeaderboardController extends Controller
             return back()->withErrors(['msg' => 'summoner not found']);
         }
 
-        // fetch rank data
-        $rankData = $this->riotService->getLeagueEntries($accountData['id']);
+        $summonerId = $accountData['id'] ?? null;
+        $rankData = [];
+
+        if ($summonerId) {
+            // fetch rank data
+            $rankData = $this->riotService->getLeagueEntries($summonerId) ?? [];
+        } else {
+            // fallback to puuid if summoner id is missing
+            $rankData = $this->riotService->getLeagueEntriesByPuuid($accountData['puuid']) ?? [];
+        }
 
         // update or create summoner record
         \App\Models\Summoner::updateOrCreate(
             ['puuid' => $accountData['puuid']],
             [
-                'summoner_id' => $accountData['id'],
+                'summoner_id' => $summonerId,
                 'game_name' => $accountData['gameName'],
                 'tag_line' => $accountData['tagLine'],
-                'profile_icon_id' => $accountData['profileIconId'],
-                'summoner_level' => $accountData['summonerLevel'],
+                'profile_icon_id' => $accountData['profileIconId'] ?? null,
+                'summoner_level' => $accountData['summonerLevel'] ?? 0,
                 'tier' => $rankData['tier'] ?? 'UNRANKED',
                 'rank' => $rankData['rank'] ?? '',
                 'league_points' => $rankData['leaguePoints'] ?? 0,
@@ -72,7 +107,11 @@ class LeaderboardController extends Controller
         
         foreach($summoners as $summoner) {
              // fetch latest rank data for each summoner
-             $rankData = $this->riotService->getLeagueEntries($summoner->summoner_id);
+             if ($summoner->summoner_id) {
+                 $rankData = $this->riotService->getLeagueEntries($summoner->summoner_id);
+             } else {
+                 $rankData = $this->riotService->getLeagueEntriesByPuuid($summoner->puuid);
+             }
              
              if ($rankData) {
                  $summoner->update([
@@ -86,5 +125,96 @@ class LeaderboardController extends Controller
         }
         
         return back()->with('success', 'all summoners updated');
+    }
+
+    public function update(Request $request, $id)
+    {
+        $summoner = \App\Models\Summoner::findOrFail($id);
+        
+        // fetch latest rank data
+        if ($summoner->summoner_id) {
+            $rankData = $this->riotService->getLeagueEntries($summoner->summoner_id);
+        } else {
+            $rankData = $this->riotService->getLeagueEntriesByPuuid($summoner->puuid);
+        }
+        
+        if ($rankData) {
+            $summoner->update([
+               'tier' => $rankData['tier'],
+               'rank' => $rankData['rank'],
+               'league_points' => $rankData['leaguePoints'],
+               'wins' => $rankData['wins'],
+               'losses' => $rankData['losses'],
+            ]);
+            return back()->with('success', "updated {$summoner->game_name}");
+        }
+
+        return back()->withErrors(['msg' => 'could not update summoner']);
+    }
+
+    public function history($id)
+    {
+        $summoner = \App\Models\Summoner::findOrFail($id);
+        $matchIds = $this->riotService->getMatchIds($summoner->puuid, 3); // Limit to 3 for speed
+        
+        $matches = [];
+        foreach($matchIds as $matchId) {
+            $details = $this->riotService->getMatchDetails($matchId);
+            if ($details) {
+                $matches[] = $this->formatMatchData($details, $summoner->puuid);
+            }
+        }
+        
+        return view('partials.history', compact('matches'));
+    }
+
+    private function formatMatchData($details, $puuid)
+    {
+        // Extract relevant data for the specific summoner
+        $participant = collect($details['info']['participants'])->firstWhere('puuid', $puuid);
+        
+        // Extract all participants for the detailed view
+        $allParticipants = collect($details['info']['participants'])->map(function($p) {
+            return [
+                'puuid' => $p['puuid'],
+                'riotIdGameName' => $p['riotIdGameName'] ?? $p['summonerName'],
+                'riotIdTagLine' => $p['riotIdTagLine'] ?? '',
+                'championName' => $p['championName'],
+                'kills' => $p['kills'],
+                'deaths' => $p['deaths'],
+                'assists' => $p['assists'],
+                'win' => $p['win'],
+                'item0' => $p['item0'],
+                'item1' => $p['item1'],
+                'item2' => $p['item2'],
+                'item3' => $p['item3'],
+                'item4' => $p['item4'],
+                'item5' => $p['item5'],
+                'item6' => $p['item6'],
+                'totalMinionsKilled' => $p['totalMinionsKilled'] + $p['neutralMinionsKilled'],
+                'teamId' => $p['teamId'],
+            ];
+        });
+
+        return [
+            'matchId' => $details['metadata']['matchId'],
+            'championName' => $participant['championName'],
+            'kills' => $participant['kills'],
+            'deaths' => $participant['deaths'],
+            'assists' => $participant['assists'],
+            'win' => $participant['win'],
+            'item0' => $participant['item0'],
+            'item1' => $participant['item1'],
+            'item2' => $participant['item2'],
+            'item3' => $participant['item3'],
+            'item4' => $participant['item4'],
+            'item5' => $participant['item5'],
+            'item6' => $participant['item6'],
+            'totalMinionsKilled' => $participant['totalMinionsKilled'] + $participant['neutralMinionsKilled'],
+            'gameDuration' => $details['info']['gameDuration'],
+            'gameMode' => $details['info']['gameMode'],
+            'gameCreation' => $details['info']['gameCreation'],
+            'participants' => $allParticipants,
+        ];
     }
 }
