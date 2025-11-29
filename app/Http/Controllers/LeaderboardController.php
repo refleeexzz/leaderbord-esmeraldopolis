@@ -43,7 +43,7 @@ class LeaderboardController extends Controller
             }
 
             return $b->league_points <=> $a->league_points; // Descending
-        });
+        })->values();
 
         return view('leaderboard', compact('summoners'));
     }
